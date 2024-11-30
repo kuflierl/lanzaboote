@@ -128,7 +128,7 @@ in
         ${optionalString cfg.generateKeysIfNotExist ''
           if [ ! -f "${cfg.privateKeyFile}" ]; then
             mkdir -p ${cfg.pkiBundle}
-            ${lib.getExe sbctlWithPki} create-keys \
+            ${lib.getExe pkgs.sbctl} create-keys \
               -d ${cfg.pkiBundle} \
               -e ${cfg.pkiBundle}/keys
           fi
