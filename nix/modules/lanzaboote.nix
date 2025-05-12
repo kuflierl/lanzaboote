@@ -20,7 +20,7 @@ in
   options.boot.lanzaboote = {
     enable = mkEnableOption "Enable the LANZABOOTE";
 
-    enrollKeys = mkEnableOption "Automatic enrollment of the keys using sbctl";
+    enrollKeys = mkEnableOption "Do not use this option. Only for used for integration tests! Automatic enrollment of the keys using sbctl";
 
     generateKeysIfNotExist = mkEnableOption "autogeneration of the PKI bundle if it doesn't exist";
 
@@ -135,8 +135,8 @@ in
         ''}
 
         ${optionalString cfg.enrollKeys ''
-          mkdir -p /tmp/pki
-          cp -r ${cfg.pkiBundle}/* /tmp/pki
+          ${lib.getExe' pkgs.coreutils "mkdir"} -p /tmp/pki
+          ${lib.getExe' pkgs.coreutils "cp"} -r ${cfg.pkiBundle}/* /tmp/pki
           ${lib.getExe sbctlWithPki} enroll-keys --yes-this-might-brick-my-machine
         ''}
 
