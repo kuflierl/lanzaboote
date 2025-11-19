@@ -1,4 +1,4 @@
-# Test that a secret is appended to the initrd during installation. Smilar to
+# Test that a secret is appended to the initrd during installation. Similar to
 # the initrd-secrets test in Nixpkgs:
 # https://github.com/NixOS/nixpkgs/blob/master/nixos/tests/initrd-secrets.nix
 
@@ -27,12 +27,15 @@ in
     };
   };
 
-  testScript = ''
-    machine.start()
-    machine.wait_for_unit("multi-user.target")
+  testScript =
+    { nodes, ... }:
+    (import ./common/image-helper.nix { inherit (nodes) machine; })
+    + ''
+      machine.start()
+      machine.wait_for_unit("multi-user.target")
 
-    machine.succeed("cmp ${secret} /secret-from-initramfs")
-    assert "Secure Boot: enabled (user)" in machine.succeed("bootctl status")
-  '';
+      machine.succeed("cmp ${secret} /secret-from-initramfs")
+      assert "Secure Boot: enabled (user)" in machine.succeed("bootctl status")
+    '';
 
 }

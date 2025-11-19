@@ -1,34 +1,49 @@
-{ lib, config, pkgs, ... }:
-with lib;
+{
+  lib,
+  config,
+  options,
+  pkgs,
+  ...
+}:
 let
   cfg = config.boot.lanzaboote;
 
-  sbctlWithPki = pkgs.sbctl.override {
-    databasePath = "/tmp/pki";
-  };
-
   loaderSettingsFormat = pkgs.formats.keyValue {
-    mkKeyValue = k: v: if v == null then "" else
-    lib.generators.mkKeyValueDefault { } " " k v;
+    mkKeyValue = k: v: if v == null then "" else lib.generators.mkKeyValueDefault { } " " k v;
   };
 
   loaderConfigFile = loaderSettingsFormat.generate "loader.conf" cfg.settings;
 
   configurationLimit = if cfg.configurationLimit == null then 0 else cfg.configurationLimit;
+
+  efiSysMountPoints = [
+    config.boot.loader.efi.efiSysMountPoint
+  ]
+  ++ cfg.extraEfiSysMountPoints;
+
+  mkInstallCommand = efiSysMountPoint: ''
+    ${cfg.installCommand} \
+      ${efiSysMountPoint} \
+      /nix/var/nix/profiles/system-*-link
+  '';
 in
 {
+  imports = [
+    (lib.mkRemovedOptionModule [ "boot" "lanzaboote" "enrollKeys" ] ''
+      Removed this internal option intended for testig only without replacement.
+    '')
+  ];
+
   options.boot.lanzaboote = {
-    enable = mkEnableOption "Enable the LANZABOOTE";
+    enable = lib.mkEnableOption "Enable the LANZABOOTE";
 
-    enrollKeys = mkEnableOption "Do not use this option. Only for used for integration tests! Automatic enrollment of the keys using sbctl";
+    generateKeysIfNotExist = lib.mkEnableOption "autogeneration of the PKI bundle if it doesn't exist";
 
-    generateKeysIfNotExist = mkEnableOption "autogeneration of the PKI bundle if it doesn't exist";
-
-    configurationLimit = mkOption {
+    configurationLimit = lib.mkOption {
       default = config.boot.loader.systemd-boot.configurationLimit;
       defaultText = "config.boot.loader.systemd-boot.configurationLimit";
       example = 120;
-      type = types.nullOr types.int;
+      type = lib.types.nullOr lib.types.int;
       description = ''
         Maximum number of latest generations in the boot menu.
         Useful to prevent boot partition running out of disk space.
@@ -38,38 +53,38 @@ in
       '';
     };
 
-    pkiBundle = mkOption {
-      type = types.nullOr types.path;
+    pkiBundle = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
       description = "PKI bundle containing db, PK, KEK";
     };
 
-    publicKeyFile = mkOption {
-      type = types.path;
+    publicKeyFile = lib.mkOption {
+      type = lib.types.path;
       default = "${cfg.pkiBundle}/keys/db/db.pem";
       defaultText = "\${cfg.pkiBundle}/keys/db/db.pem";
       description = "Public key to sign your boot files";
     };
 
-    privateKeyFile = mkOption {
-      type = types.path;
+    privateKeyFile = lib.mkOption {
+      type = lib.types.path;
       default = "${cfg.pkiBundle}/keys/db/db.key";
       defaultText = "\${cfg.pkiBundle}/keys/db/db.key";
       description = "Private key to sign your boot files";
     };
 
-    package = mkOption {
-      type = types.package;
+    package = lib.mkOption {
+      type = lib.types.package;
       default = pkgs.lzbt;
       defaultText = "pkgs.lzbt";
       description = "Lanzaboote tool (lzbt) package";
     };
 
-    settings = mkOption rec {
-      type = types.submodule {
+    settings = lib.mkOption {
+      type = lib.types.submodule {
         freeformType = loaderSettingsFormat.type;
       };
 
-      apply = recursiveUpdate default;
+      apply = lib.recursiveUpdate options.boot.lanzaboote.settings.default;
 
       default = {
         timeout = config.boot.loader.timeout;
@@ -87,7 +102,7 @@ in
         }
       '';
 
-      example = literalExpression ''
+      example = lib.literalExpression ''
         {
           editor = null; # null value removes line from the loader.conf
           beep = true;
@@ -103,7 +118,7 @@ in
       '';
     };
 
-    sortKey = mkOption {
+    sortKey = lib.mkOption {
       default = "lanza";
       type = lib.types.str;
       description = ''
@@ -112,9 +127,45 @@ in
         https://uapi-group.org/specifications/specs/boot_loader_specification/#sorting
       '';
     };
+
+    installCommand = lib.mkOption {
+      type = lib.types.str;
+      readOnly = true;
+      description = ''
+        The partial command to execute lzbt install. This can be used to build
+        images by adding the directory to install to and the path to the
+        toplevel.
+      '';
+      default = ''
+        # Use the system from the kernel's hostPlatform because this should
+        # always, even in the cross compilation case, be the right system.
+        ${lib.getExe cfg.package} install \
+          --system ${config.boot.kernelPackages.stdenv.hostPlatform.system} \
+          --systemd ${config.systemd.package} \
+          --systemd-boot-loader-config ${loaderConfigFile} \
+          --public-key ${cfg.publicKeyFile} \
+          --private-key ${cfg.privateKeyFile} \
+          --configuration-limit ${toString configurationLimit}'';
+      defaultText = lib.literalExpression ''
+        ''${lib.getExe cfg.package} install \
+          --system ''${config.boot.kernelPackages.stdenv.hostPlatform.system} \
+          --systemd ''${config.systemd.package} \
+          --systemd-boot-loader-config ''${loaderConfigFile} \
+          --public-key ''${cfg.publicKeyFile} \
+          --private-key ''${cfg.privateKeyFile} \
+          --configuration-limit ''${toString configurationLimit}'';
+    };
+
+    extraEfiSysMountPoints = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      description = ''
+        List of EFI system partition mount points to install the bootloader to (additionally to boot.loader.efi.efiSysMountPoint).
+      '';
+      default = [ ];
+    };
   };
 
-  config = mkIf cfg.enable {
+  config = lib.mkIf cfg.enable {
     boot.bootspec = {
       enable = true;
       extensions."org.nix-community.lanzaboote" = {
@@ -124,34 +175,20 @@ in
     boot.loader.supportsInitrdSecrets = true;
     boot.loader.external = {
       enable = true;
-      installHook = pkgs.writeShellScript "bootinstall" ''
-        ${optionalString cfg.generateKeysIfNotExist ''
-          if [ ! -f "${cfg.privateKeyFile}" ]; then
-            mkdir -p ${cfg.pkiBundle}
-            ${lib.getExe sbctlWithPki} create-keys \
-              -d ${cfg.pkiBundle} \
-              -e ${cfg.pkiBundle}/keys
-          fi
-        ''}
 
-        ${optionalString cfg.enrollKeys ''
-          ${lib.getExe' pkgs.coreutils "mkdir"} -p /tmp/pki
-          ${lib.getExe' pkgs.coreutils "cp"} -r ${cfg.pkiBundle}/* /tmp/pki
-          ${lib.getExe sbctlWithPki} enroll-keys --yes-this-might-brick-my-machine
-        ''}
-
-        # Use the system from the kernel's hostPlatform because this should
-        # always, even in the cross compilation case, be the right system.
-        ${lib.getExe cfg.package} install \
-          --system ${config.boot.kernelPackages.stdenv.hostPlatform.system} \
-          --systemd ${config.systemd.package} \
-          --systemd-boot-loader-config ${loaderConfigFile} \
-          --public-key ${cfg.publicKeyFile} \
-          --private-key ${cfg.privateKeyFile} \
-          --configuration-limit ${toString configurationLimit} \
-          ${config.boot.loader.efi.efiSysMountPoint} \
-          /nix/var/nix/profiles/system-*-link
-      '';
+      installHook = pkgs.writeShellScript "bootinstall" (
+        lib.concatStringsSep "\n" (
+          (lib.optional cfg.generateKeysIfNotExist ''
+            if [ ! -f "${cfg.privateKeyFile}" ]; then
+              mkdir -p ${cfg.pkiBundle}
+              ${lib.getExe pkgs.sbctl} create-keys \
+                -d ${cfg.pkiBundle} \
+                -e ${cfg.pkiBundle}/keys
+            fi
+          '')
+          ++ (map mkInstallCommand efiSysMountPoints)
+        )
+      );
     };
 
     systemd.services.fwupd = lib.mkIf config.services.fwupd.enable {

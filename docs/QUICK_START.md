@@ -115,15 +115,15 @@ secret key so that only root can read it.
 > sbctl setup --migrate
 > ```
 
-### Configuring NixOS (with [`niv`](https://github.com/nmattia/niv))
+### Configuring NixOS (with [`lon`](https://github.com/nikstur/lon))
 
-Add `lanzaboote` as a dependency of your niv project and track a stable release tag (https://github.com/nix-community/lanzaboote/releases).
+Add `lanzaboote` as a dependency via `lon` tracking a stable release tag (https://github.com/nix-community/lanzaboote/releases).
 
 ```console
-$ niv add nix-community/lanzaboote -r v0.4.2 -v 0.4.2
-Adding package lanzaboote
-  Writing new sources file
-Done: Adding package lanzaboote
+$ lon add github nix-community/lanzaboote -r v0.4.3 --frozen
+Adding lanzaboote...
+Locked revision: v0.4.3
+Locked hash: sha256-If6vQ+KvtKs3ARBO9G3l+4wFSCYtRBrwX1z+I+B61wQ=
 ```
 
 Below is a fragment of a NixOS configuration that enables the SecureBoot stack.
@@ -132,8 +132,8 @@ Below is a fragment of a NixOS configuration that enables the SecureBoot stack.
 # file: configuration.nix
 { pkgs, lib, ... }:
 let
-    sources = import ./nix/sources.nix;
-    lanzaboote = import sources.lanzaboote;
+  sources = import ./lon.nix;
+  lanzaboote = import sources.lanzaboote;
 in
 {
   imports = [ lanzaboote.nixosModules.lanzaboote ];
@@ -156,6 +156,12 @@ in
 }
 ```
 
+If you're using Lanzaboote from main, you need to call it via
+
+```nix
+lanzaboote = import sources.lanzaboote { inherit pkgs; };
+```
+
 ### Configuring NixOS (with Flakes)
 
 Below is a fragment of a NixOS configuration that enables the Secure
@@ -169,7 +175,7 @@ Boot stack.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     lanzaboote = {
-      url = "github:nix-community/lanzaboote/v0.4.2";
+      url = "github:nix-community/lanzaboote/v0.4.3";
 
       # Optional but recommended to limit the size of your system closure.
       inputs.nixpkgs.follows = "nixpkgs";
