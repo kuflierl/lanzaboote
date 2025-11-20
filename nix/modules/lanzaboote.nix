@@ -39,6 +39,30 @@ in
 
     generateKeysIfNotExist = lib.mkEnableOption "autogeneration of the PKI bundle if it doesn't exist";
 
+    preInstallHook = lib.mkOption {
+      default = "";
+      type = lib.types.lines;
+      example = ''
+        echo "This command runs before lanzaboote!"
+        mkdir -p /boot/assets
+      '';
+      description = ''
+        Additional shell commands to run before lanzaboote
+      '';
+    };
+
+    postInstallHook = lib.mkOption {
+      default = "";
+      type = lib.types.lines;
+      example = ''
+        echo "These commands run after lanzaboote!"
+        \${lib.getExe pkgs.sbctl} enroll-keys --yes-this-might-brick-my-machine
+      '';
+      description = ''
+        Additional shell commands run after lanzaboote is done
+      '';
+    };
+
     configurationLimit = lib.mkOption {
       default = config.boot.loader.systemd-boot.configurationLimit;
       defaultText = "config.boot.loader.systemd-boot.configurationLimit";
@@ -186,7 +210,9 @@ in
                 -e ${cfg.pkiBundle}/keys
             fi
           '')
+          ++ [ cfg.preInstallHook ]
           ++ (map mkInstallCommand efiSysMountPoints)
+          ++ [ cfg.postInstallHook ]
         )
       );
     };
